@@ -49,16 +49,18 @@ async def cmd_start(message: types.Message):
     await message.answer("Вы успешно зарегистрированы! Теперь вы можете получать коды подтверждения.")
 
 
-# Управление жизненным циклом (FastAPI + Aiogram)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Инициализация БД
     await db.init_db()
+
     # Запуск polling бота в фоновом режиме
     polling_task = asyncio.create_task(dp.start_polling(bot))
     yield
     # Остановка при завершении
     polling_task.cancel()
     await bot.session.close()
+    await db.engine.dispose()  # Закрываем соединения к БД
 
 
 app = FastAPI(title="TG Code Verification Service", lifespan=lifespan)
