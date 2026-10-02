@@ -1,0 +1,14 @@
+services:
+  tg_bot:
+    build: .
+    container_name: tg_code_bot
+    restart: always
+    ports:
+      - "7000:7000"
+    env_file:
+      - .env
+    volumes:
+      - bot_data:/app/data
+
+volumes:
+  bot_data:
