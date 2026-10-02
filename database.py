@@ -7,18 +7,15 @@ from models import Base, User, VerificationCode
 
 DATABASE_URL = f"sqlite+aiosqlite:///{settings.DB_PATH}"
 
-# Создаем асинхронный движок
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     connect_args={"timeout": 30.0}
 )
 
-# Фабрика сессий
 async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
-# Включаем WAL-режим и поддержу Foreign Keys в SQLite
 @event.listens_for(engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
@@ -33,28 +30,31 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
-def _clean_username(username: str) -> str:
+def _clean_username(username: Optional[str]) -> Optional[str]:
     """Вспомогательная функция очистки username"""
+    if not username:
+        return None
     return username.lower().replace("@", "").strip()
 
 
-async def register_user(chat_id: int, username: str) -> None:
-    if not username:
-        return
-
+async def register_user(chat_id: int, username: Optional[str]) -> None:
     clean_name = _clean_username(username)
 
     async with async_session() as session:
         async with session.begin():
-            # Освобождаем username, если он был закреплен за другим chat_id
-            existing_user_with_name = (
-                await session.execute(select(User).where(User.username == clean_name))
-            ).scalar_one_or_none()
+            # Если у пользователя есть username, проверяем не занят ли он другим chat_id
+            if clean_name:
+                existing_user_with_name = (
+                    await session.execute(select(User).where(User.username == clean_name))
+                ).scalar_one_or_none()
 
-            if existing_user_with_name and existing_user_with_name.chat_id != chat_id:
-                existing_user_with_name.username = f"old_{existing_user_with_name.chat_id}"
+                if existing_user_with_name and existing_user_with_name.chat_id != chat_id:
+                    # Освобождаем username у старого владельца
+                    existing_user_with_name.username = None
+                    # ВАЖНО: Сразу отправляем UPDATE в БД, чтобы освободить UNIQUE индекс!
+                    await session.flush()
 
-            # Проверяем самого пользователя
+            # Получаем или создаем пользователя
             user = await session.get(User, chat_id)
             if user:
                 user.username = clean_name
@@ -64,6 +64,9 @@ async def register_user(chat_id: int, username: str) -> None:
 
 async def get_chat_id_by_username(username: str) -> Optional[int]:
     clean_name = _clean_username(username)
+    if not clean_name:
+        return None
+
     async with async_session() as session:
         stmt = select(User.chat_id).where(User.username == clean_name)
         result = await session.execute(stmt)
@@ -72,6 +75,9 @@ async def get_chat_id_by_username(username: str) -> Optional[int]:
 
 async def save_code(username: str, code: str, expires_at: datetime) -> None:
     clean_name = _clean_username(username)
+    if not clean_name:
+        raise ValueError("Юзернейм не может быть пустым")
+
     async with async_session() as session:
         async with session.begin():
             chat_id = (

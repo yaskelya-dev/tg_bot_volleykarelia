@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 from sqlalchemy import BigInteger, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -11,7 +12,8 @@ class User(Base):
     __tablename__ = "users"
 
     chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
-    username: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
+    # Сделали nullable=True и Optional[str]
+    username: Mapped[Optional[str]] = mapped_column(String(32), unique=True, index=True, nullable=True)
 
     codes: Mapped[list["VerificationCode"]] = relationship(
         back_populates="user",
